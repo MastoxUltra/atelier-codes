@@ -111,11 +111,66 @@ def lot_en_tete():
     return None
 
 
+def rendre(lot, dossier, nom_marque, texte):
+    """La sortie d'un lot (ou sa seule marque d'erreur) dans le jeu de données de sortie, que le PC surveille."""
+    global creee
+    envoi = BASE + "/envoi"
+    shutil.rmtree(envoi, ignore_errors=True)
+    os.makedirs(envoi)
+    if dossier and os.path.isdir(dossier):
+        shutil.make_archive(os.path.join(envoi, lot), "zip", dossier)
+    open(os.path.join(envoi, "%s-%s.txt" % (nom_marque, lot)), "w").write(texte)
+    json.dump({"title": "Faunimo %s sortie" % OUVRIER, "id": SORTIE, "licenses": [{"name": "other"}]},
+              open(os.path.join(envoi, "dataset-metadata.json"), "w"))
+    if creee:
+        print(k("datasets", "version", "-p", envoi, "-m", lot, "-q")[1][-200:])
+    else:
+        print(k("datasets", "create", "-p", envoi, "-q")[1][-200:])
+        creee = True
+
+
+def faire(lot):
+    """Un lot : téléchargé (deux essais), passé par le carnet, rendu. Une faute lève RuntimeError : le lot est mis de côté."""
+    for essai in (1, 2):
+        shutil.rmtree(BASE + "/lot", ignore_errors=True)
+        os.makedirs(BASE + "/lot")
+        print(k("datasets", "download", "-d", LOT, "-p", BASE + "/lot", "--unzip")[1][-300:], flush=True)
+        deplier(BASE + "/lot")
+        travaux = glob.glob(BASE + "/lot/**/travaux.json", recursive=True)
+        carnets = glob.glob(BASE + "/lot/**/carnet.py", recursive=True)
+        if travaux and carnets:
+            break
+        print("lot sans travaux.json ni carnet.py (essai %d) :" % essai, os.listdir(BASE + "/lot")[:10], flush=True)
+        time.sleep(90)
+    else:
+        raise RuntimeError("le lot téléchargé n'a ni travaux.json ni carnet.py")
+    global import_cherche
+    if not import_cherche and not os.path.exists(DONNEES + "/godot-cache.tar"):
+        # (27/10) l'import gardé : essai_distant.py le déplie avant l'import. Introuvable (9 Go, Kaggle ne le rend pas
+        # toujours) : on ne le redemande plus, Godot importe normalement, et garde son import d'un lot à l'autre ici
+        import_cherche = True
+        print("import gardé :", k("kernels", "output", "masrox/faunimo-import", "-p", DONNEES, "--file-pattern",
+                                  r"godot-cache\.tar", delai=1800)[1][-200:], flush=True)
+        if not os.path.exists(DONNEES + "/godot-cache.tar"):
+            print("import gardé introuvable : import normal", flush=True)
+    sortie = BASE + "/sortie-" + lot
+    shutil.rmtree(sortie, ignore_errors=True)
+    env = dict(os.environ, BIBELOTS_JEU_GROS=DONNEES + "/faunimo-jeu")
+    r = subprocess.run(["python", carnets[0], "--entree", os.path.dirname(travaux[0]), "--sortie", sortie, "--base", BASE + "/base"], env=env)
+    print("carnet : code", r.returncode, flush=True)
+    rendre(lot, sortie, "fait", time.strftime("%Y-%m-%d %H:%M:%S"))
+
+
 faits = set()
+import_cherche = False
 creee = k("datasets", "status", SORTIE)[0] == 0 and "ready" in k("datasets", "status", SORTIE)[1]
 vu = 0
 while True:
-    lot = lot_en_tete()
+    try:
+        lot = lot_en_tete()
+    except Exception as e:                             # une panne passagère de Kaggle : on réessaie dans une minute
+        print("lot en tête illisible :", repr(e)[:200], flush=True)
+        lot = None
     if not lot or lot in faits:
         if time.time() - vu > 600:
             print(time.strftime("%H:%M"), "j'attends un lot", flush=True)
@@ -123,29 +178,12 @@ while True:
         time.sleep(60)
         continue
     print(time.strftime("%H:%M"), "lot", lot, flush=True)
-    shutil.rmtree(BASE + "/lot", ignore_errors=True)
-    os.makedirs(BASE + "/lot")
-    print(k("datasets", "download", "-d", LOT, "-p", BASE + "/lot", "--unzip")[1][-200:])
-    deplier(BASE + "/lot")
-    carnets = glob.glob(BASE + "/lot/**/carnet.py", recursive=True)
-    sortie = BASE + "/sortie-" + lot
-    shutil.rmtree(sortie, ignore_errors=True)
-    if not os.path.exists(DONNEES + "/godot-cache.tar"):  # (27/10) l'import gardé : essai_distant.py le déplie avant l'import
-        print("import gardé :", k("kernels", "output", "masrox/faunimo-import", "-p", DONNEES, delai=1800)[1][-150:])
-    env = dict(os.environ, BIBELOTS_JEU_GROS=DONNEES + "/faunimo-jeu")
-    racine = os.path.dirname(glob.glob(BASE + "/lot/**/travaux.json", recursive=True)[0])
-    r = subprocess.run(["python", carnets[0], "--entree", racine, "--sortie", sortie, "--base", BASE + "/base"], env=env)
-    print("carnet : code", r.returncode, flush=True)
-    envoi = BASE + "/envoi"
-    shutil.rmtree(envoi, ignore_errors=True)
-    os.makedirs(envoi)
-    shutil.make_archive(os.path.join(envoi, lot), "zip", sortie)
-    open(os.path.join(envoi, "fait-%s.txt" % lot), "w").write(time.strftime("%Y-%m-%d %H:%M:%S"))
-    json.dump({"title": "Faunimo colab sortie", "id": SORTIE, "licenses": [{"name": "other"}]},
-              open(os.path.join(envoi, "dataset-metadata.json"), "w"))
-    if creee:
-        print(k("datasets", "version", "-p", envoi, "-m", lot, "-q")[1][-200:])
-    else:
-        print(k("datasets", "create", "-p", envoi, "-q")[1][-200:])
-        creee = True
     faits.add(lot)
+    try:
+        faire(lot)
+    except Exception as e:                             # (27/10) jamais la boucle par terre : le lot est mis de côté
+        print("LOT MIS DE CÔTÉ :", lot, ":", repr(e)[:300], flush=True)
+        try:
+            rendre(lot, None, "erreur", repr(e)[:1000])
+        except Exception as e2:
+            print("marque d'erreur pas envoyée :", repr(e2)[:200], flush=True)
