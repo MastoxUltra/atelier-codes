@@ -98,16 +98,30 @@ if not glob.glob(DONNEES + "/faunimo-jeu/art/modeles"):
 print("gros fichiers :", os.path.realpath(DONNEES + "/faunimo-jeu"))
 
 # 2. la boucle : un lot à la fois, tant que la séance dure
+# (27/10) le lot en tête se lit dans lot.txt (un seul petit fichier) : la liste des fichiers du jeu de données est découpée
+# en pages, et lot-<id>.txt n'était jamais sur la première (des milliers de fichiers de faunimo/ passent avant)
+def lot_en_tete():
+    tete = BASE + "/tete"
+    shutil.rmtree(tete, ignore_errors=True)
+    os.makedirs(tete)
+    k("datasets", "download", "-d", LOT, "-f", "lot.txt", "-p", tete, "--force", delai=300)
+    deplier(tete)
+    for f in glob.glob(tete + "/**/lot.txt", recursive=True):
+        return open(f, encoding="utf-8").read().strip()
+    return None
+
+
 faits = set()
 creee = k("datasets", "status", SORTIE)[0] == 0 and "ready" in k("datasets", "status", SORTIE)[1]
+vu = 0
 while True:
-    code, liste = k("datasets", "files", LOT, "--csv", delai=300)
-    lots = [l.split(",")[0][4:-4] for l in liste.splitlines() if l.startswith("lot-") and l.split(",")[0].endswith(".txt")]
-    neufs = [l for l in lots if l not in faits]
-    if not neufs:
+    lot = lot_en_tete()
+    if not lot or lot in faits:
+        if time.time() - vu > 600:
+            print(time.strftime("%H:%M"), "j'attends un lot", flush=True)
+            vu = time.time()
         time.sleep(60)
         continue
-    lot = neufs[0]
     print(time.strftime("%H:%M"), "lot", lot, flush=True)
     shutil.rmtree(BASE + "/lot", ignore_errors=True)
     os.makedirs(BASE + "/lot")
