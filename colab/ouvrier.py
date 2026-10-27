@@ -49,6 +49,8 @@ else:
     raise SystemExit("Secret KAGGLE_API_TOKEN ou KAGGLE_KEY introuvable (la clé 🔑 à gauche, « Accès au carnet » coché)")
 print("jeton Kaggle :", "nouveau type" if "KAGGLE_API_TOKEN" in os.environ else "ancienne clé", "(jamais affiché)")
 subprocess.run(["pip", "install", "-q", "-U", "kaggle>=2.2"], check=True)     # les jetons KGAT_ : kaggle 2.x
+if not shutil.which("nvidia-smi"):                     # les lots sont des photos sur carte : sans carte, rien à faire ici
+    raise SystemExit("Pas de carte graphique sur cette machine : choisir une machine avec GPU (T4), puis relancer")
 print(subprocess.run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"], capture_output=True, text=True).stdout)
 
 LOT, SORTIE, JEU = "masrox/faunimo-%s-lot" % OUVRIER, "masrox/faunimo-%s-sortie" % OUVRIER, "masrox/faunimo-jeu"
