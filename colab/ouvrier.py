@@ -134,8 +134,17 @@ def faire(lot):
     for essai in (1, 2):
         shutil.rmtree(BASE + "/lot", ignore_errors=True)
         os.makedirs(BASE + "/lot")
-        print(k("datasets", "download", "-d", LOT, "-p", BASE + "/lot", "--unzip")[1][-300:], flush=True)
+        # (28/10) fichier par fichier : le lot tient en trois fichiers (faunimo.paquet), et le téléchargement du jeu de
+        # données entier ne rendait rien sur Colab (« ni travaux.json ni carnet.py »)
+        for f in ("travaux.json", "carnet.py", "faunimo.paquet"):
+            print(f, ":", k("datasets", "download", "-d", LOT, "-f", f, "-p", BASE + "/lot", "--force")[1][-160:], flush=True)
         deplier(BASE + "/lot")
+        for f in ("travaux.json", "carnet.py", "faunimo.paquet"):    # un fichier rendu zippé : faunimo.paquet/faunimo.paquet
+            dedans = os.path.join(BASE, "lot", f, f)
+            if os.path.isfile(dedans):
+                os.rename(dedans, os.path.join(BASE, "lot", f + ".tmp"))
+                shutil.rmtree(os.path.join(BASE, "lot", f))
+                os.rename(os.path.join(BASE, "lot", f + ".tmp"), os.path.join(BASE, "lot", f))
         travaux = glob.glob(BASE + "/lot/**/travaux.json", recursive=True)
         carnets = glob.glob(BASE + "/lot/**/carnet.py", recursive=True)
         if travaux and carnets:
