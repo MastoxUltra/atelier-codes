@@ -86,16 +86,33 @@ def deplier(dossier):
                 os.rename(tmp, cible)
 
 
-# 1. le jeu, une fois par séance (environ 8 Go)
-if not glob.glob(DONNEES + "/faunimo-jeu/art/modeles"):
+# 1. le jeu (environ 8 Go) : au démarrage, et revérifié avant chaque lot d'essais (28/10 : un lot léger est parti sans lui)
+def assurer_jeu():
+    lien = DONNEES + "/faunimo-jeu"
+    if glob.glob(lien + "/art/modeles"):
+        return
     os.makedirs(BASE + "/jeu", exist_ok=True)
-    print("jeu :", k("datasets", "download", "-d", JEU, "-p", BASE + "/jeu", "--unzip")[1][-300:])
+    print("jeu :", k("datasets", "download", "-d", JEU, "-p", BASE + "/jeu", "--unzip")[1][-300:], flush=True)
     deplier(BASE + "/jeu")
-    trouve = [os.path.dirname(os.path.dirname(p)) for p in glob.glob(BASE + "/jeu/**/art/modeles", recursive=True)]
+    trouve = sorted((os.path.dirname(os.path.dirname(p)) for p in glob.glob(BASE + "/jeu/**/art/modeles", recursive=True)), key=len)
     os.makedirs(DONNEES, exist_ok=True)
-    if trouve and not os.path.exists(DONNEES + "/faunimo-jeu"):
-        os.symlink(trouve[0], DONNEES + "/faunimo-jeu")
-print("gros fichiers :", os.path.realpath(DONNEES + "/faunimo-jeu"))
+    if os.path.islink(lien) or os.path.exists(lien):   # un lien cassé d'une séance précédente
+        if os.path.islink(lien):
+            os.unlink(lien)
+        else:
+            shutil.rmtree(lien, ignore_errors=True)
+    if trouve:
+        os.symlink(trouve[0], lien)
+    if not glob.glob(lien + "/art/modeles"):
+        haut = sorted(os.listdir(BASE + "/jeu"))[:12] if os.path.isdir(BASE + "/jeu") else []
+        raise RuntimeError("faunimo-jeu introuvable après téléchargement ; %s/jeu contient : %s" % (BASE, haut))
+    print("gros fichiers :", os.path.realpath(lien), flush=True)
+
+
+try:
+    assurer_jeu()
+except RuntimeError as e:
+    print("ATTENTION :", e, flush=True)
 
 # 2. la boucle : un lot à la fois, tant que la séance dure
 # (27/10) le lot en tête se lit dans lot.txt (un seul petit fichier) : la liste des fichiers du jeu de données est découpée
@@ -162,6 +179,8 @@ def faire(lot):
                                   r"godot-cache\.tar", delai=1800)[1][-200:], flush=True)
         if not os.path.exists(DONNEES + "/godot-cache.tar"):
             print("import gardé introuvable : import normal", flush=True)
+    if any("essai_distant.py" in l for l in open(travaux[0], encoding="utf-8")):
+        assurer_jeu()                                  # un lot d'essais sans les gros fichiers ne donnerait que des échecs
     sortie = BASE + "/sortie-" + lot
     shutil.rmtree(sortie, ignore_errors=True)
     env = dict(os.environ, BIBELOTS_JEU_GROS=DONNEES + "/faunimo-jeu")
