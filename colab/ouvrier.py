@@ -87,6 +87,23 @@ def deplier(dossier):
 
 
 # 1. le jeu (environ 8 Go) : au démarrage, et revérifié avant chaque lot d'essais (28/10 : un lot léger est parti sans lui)
+COLIS = "masrox/faunimo-colis"     # (28/10) le jeu et l'import gardé en morceaux de 900 Mo (l'API ne rend plus 8 Go d'un bloc)
+
+
+def depuis_colis(prefixe, commande):
+    """Télécharge les morceaux <prefixe>.NN du carnet faunimo-colis, puis les passe à commande (cat … | commande)."""
+    d = BASE + "/colis"
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    print("colis", prefixe, ":", k("kernels", "output", COLIS, "-p", d, "--file-pattern", prefixe.replace(".", r"\.") + r"\..*",
+                                   delai=7200)[1][-200:], flush=True)
+    morceaux = sorted(glob.glob(d + "/" + prefixe + ".*"))
+    if morceaux:
+        subprocess.run("cat %s | %s" % (" ".join(morceaux), commande), shell=True, check=True)
+    shutil.rmtree(d, ignore_errors=True)
+    return len(morceaux)
+
+
 def assurer_jeu():
     lien = DONNEES + "/faunimo-jeu"
     if glob.glob(lien + "/art/modeles"):
@@ -94,6 +111,9 @@ def assurer_jeu():
     os.makedirs(BASE + "/jeu", exist_ok=True)
     print("jeu :", k("datasets", "download", "-d", JEU, "-p", BASE + "/jeu", "--unzip")[1][-300:], flush=True)
     deplier(BASE + "/jeu")
+    if not glob.glob(BASE + "/jeu/**/art/modeles", recursive=True):    # l'archive d'un bloc manque : le colis en morceaux
+        os.makedirs(BASE + "/jeu/faunimo-jeu", exist_ok=True)
+        print("jeu en morceaux :", depuis_colis("jeu.paquet", "tar -xf - -C %s/jeu/faunimo-jeu" % BASE), flush=True)
     trouve = sorted((os.path.dirname(os.path.dirname(p)) for p in glob.glob(BASE + "/jeu/**/art/modeles", recursive=True)), key=len)
     os.makedirs(DONNEES, exist_ok=True)
     if os.path.islink(lien) or os.path.exists(lien):   # un lien cassé d'une séance précédente
@@ -175,8 +195,8 @@ def faire(lot):
         # (27/10) l'import gardé : essai_distant.py le déplie avant l'import. Introuvable (9 Go, Kaggle ne le rend pas
         # toujours) : on ne le redemande plus, Godot importe normalement, et garde son import d'un lot à l'autre ici
         import_cherche = True
-        print("import gardé :", k("kernels", "output", "masrox/faunimo-import", "-p", DONNEES, "--file-pattern",
-                                  r"godot-cache\.tar", delai=1800)[1][-200:], flush=True)
+        n = depuis_colis("cache.paquet", "cat > %s/godot-cache.tar" % DONNEES)    # (28/10) en morceaux, par le colis
+        print("import gardé :", n, "morceaux", flush=True)
         if not os.path.exists(DONNEES + "/godot-cache.tar"):
             print("import gardé introuvable : import normal", flush=True)
     if any("essai_distant.py" in l for l in open(travaux[0], encoding="utf-8")):
